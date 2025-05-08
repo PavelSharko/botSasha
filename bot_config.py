@@ -1,7 +1,7 @@
 # bot_config.py
 
-api_id = 26385587
-api_hash = "16d49573d64611b9c14371d538aec716"
+api_id = 21613933
+api_hash = "b3a194182568ea3c8ffdec64d098c922"
 
 KEYWORDS = [
     "обменять рупии", "обменять", "рупии", "рубли", "idr", "обмен",
@@ -18,6 +18,7 @@ TRAINER_KEYWORDS = [
     "персональные тренировки", "фитнес тренер", "посоветуйте тренера"
 ]
 
-TARGET_CHAT = "@trenersharko"
+TARGET_CHAT = "@pavel_healthy"
 IGNORED_USERS_FILE = "ignored_users.txt"
 EXTRA_KEYWORDS_FILE = "extra_keywords.txt"
+IGNORE_CHATS_FILE = "ignore_chats.txt"

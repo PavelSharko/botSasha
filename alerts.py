@@ -1,6 +1,8 @@
 # alerts.py
 import logging
 import re
+from cashes import alert_cache
+
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +12,15 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot_config import TARGET_CHAT
 
 
-async def send_alert(app, message, keyword_matched, old_message_note="", link=None):
+
+async def send_alert(app, message, keyword_matched, old_message_note="", link=None, force_send=False):
+    # Универсальный ключ
+    unique_key = f"{message.chat.id}:{message.id}"
+    if not force_send and unique_key in alert_cache:
+        logging.info("но такое сообщение уже было обработано и отправлено - пропускаем")
+        return
+
+
     chat_title = message.chat.title if message.chat.title else "Личка / неизвестный чат"
     chat_link = get_chat_link(message)
     if chat_link:
@@ -57,6 +67,7 @@ async def send_alert(app, message, keyword_matched, old_message_note="", link=No
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
+    alert_cache.add(unique_key)
 
 
 from pyrogram.enums import ChatType
