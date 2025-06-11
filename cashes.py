@@ -45,7 +45,7 @@ async def alert_cache_cleaner(app):
         try:
             alert_cache.clear()
             await app.send_message(TARGET_CHAT, "⏰ кэш сообщений почищен.")
-            logger.info("[AlertCache] Кеш очищен (раз в сутки)")
+            logger.warning("[AlertCache] Кеш очищен (раз в сутки)")
         except Exception as e:
             logger.error(f"[AlertCache] Ошибка при очистке кэша: {e}")
         await asyncio.sleep(24 * 60 * 60)  # раз в сутки

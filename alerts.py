@@ -69,6 +69,11 @@ async def send_alert(app, message, keyword_matched, old_message_note="", link=No
     )
     alert_cache.add(unique_key)
 
+    # эта тема добавит строку для копирования дополнительным сообщением
+    # if message.from_user and message.from_user.username:
+    #     ignore_command = f"🔫/игнор @{message.from_user.username}"
+    #     await app.send_message(TARGET_CHAT, ignore_command)
+
 
 from pyrogram.enums import ChatType
 

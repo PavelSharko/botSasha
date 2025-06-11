@@ -23,7 +23,7 @@ app = Client("my_account", api_id=api_id, api_hash=api_hash)
 command_handler = CommandHandler(app, ALL_KEYWORDS, ignored_users, ignored_chats)
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format='[%(asctime)s] %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -56,11 +56,17 @@ async def keyword_alert(client, message):
                 if text.startswith("/addword"):
                     await command_handler.add_word(message)
                     return
-                if text.startswith("/ignore"):
+                if text.startswith("/delword"):  # новая команда для удаления ключевого слова
+                    await command_handler.del_word(message)
+                    return
+                if text.startswith("/игнор"):
                     await command_handler.ignore_user(message)
                     return
-                if text.startswith("/ignorechat"):
-                    await command_handler.ignore_chat(message)
+                if text.startswith("/неигнор"):  # новая команда для удаления пользователя из игнора
+                    await command_handler.unignore_user(message)
+                    return
+                if text.startswith("/delchat"):
+                    await command_handler.del_chat(message)
                     return
                 if text.startswith("/lasttime"):
                     await command_handler.last_time(message)
@@ -92,11 +98,17 @@ async def keyword_alert(client, message):
         if text_lower.startswith("/addword"):
             await command_handler.add_word(message)
             return
-        if text_lower.startswith("/ignore"):
+        if text.startswith("/delword"):  # новая команда для удаления ключевого слова
+            await command_handler.del_word(message)
+            return
+        if text_lower.startswith("/игнор"):
             await command_handler.ignore_user(message)
             return
-        if text.startswith("/ignorechat"):
-            await command_handler.ignore_chat(message)
+        if text.startswith("/неигнор"):  # новая команда для удаления пользователя из игнора
+            await command_handler.unignore_user(message)
+            return
+        if text.startswith("/delchat"):
+            await command_handler.del_chat(message)
             return
         if text_lower.startswith("/lasttime"):
             await command_handler.last_time(message)
@@ -116,7 +128,7 @@ async def keyword_alert(client, message):
 
         # print(f"[{time_str}] Найдено слово: \"{matched_keyword}\" | Автор: @{sender} | Тип чата: {chat_type} | Чат: \"{chat_title}\"")
 
-        logging.debug(f"Найдено слово: \"{matched_keyword}\" | Автор: @{sender} | Тип чата: {chat_type} | Чат: \"{chat_title}\"")
+        logging.info(f"Найдено слово: \"{matched_keyword}\" | Автор: @{sender} | Тип чата: {chat_type} | Чат: \"{chat_title}\"")
 
         link = get_message_link(message)
         await send_alert(app, message, matched_keyword, link=link)
@@ -135,25 +147,26 @@ class FakeMessage:
     async def reply(self, text, **kwargs):
         return await app.send_message(self.chat.id, text, **kwargs)
 
-# @app.on_callback_query()
-# async def callback_ignore(client, callback_query):
-#     data = callback_query.data
-#     if data.startswith("ignore_"):
-#         username = data[len("ignore_"):]
-#         command_text = f"/ignore @{username}"
-#
-#         fake_message = FakeMessage(
-#             text=command_text,
-#             chat=callback_query.message.chat,
-#             from_user=callback_query.from_user
-#         )
-#
-#         await command_handler.ignore_user(fake_message)
-#         await callback_query.answer(f"Пользователь @{username} добавлен в игнор-лист.", show_alert=True)
+@app.on_callback_query()
+async def callback_ignore(client, callback_query):
+    data = callback_query.data
+    if data.startswith("ignore_"):
+        username = data[len("ignore_"):]
+        command_text = f"/ignore @{username}"
+
+        fake_message = FakeMessage(
+            text=command_text,
+            chat=callback_query.message.chat,
+            from_user=callback_query.from_user
+        )
+
+        await command_handler.ignore_user(fake_message)
+        await callback_query.answer(f"Пользователь @{username} добавлен в игнор-лист.", show_alert=True)
 
 
 async def scheduler_loop():
-    logging.info("шедулер за прошлый час по пропущенному:")
+    logging.warning("шедулер за 30 минут по пропущенному:")
+    await asyncio.sleep(10) #чутка ждем чтобы засинхрониться
     asyncio.create_task(alert_cache_cleaner(app))
     await app.send_message(TARGET_CHAT, "⏰ Шедулер: запускаю дополнительное глубокое сканирование через получение истории.")
 
@@ -171,8 +184,9 @@ async def scheduler_loop():
 
             await command_handler.last_time(DummyMessage())
         except Exception as e:
-            logging.error(f"Ошибка в шедулере: {e}")
-        await asyncio.sleep(3600)  # 1 час
+            logging.warning(f"Ошибка в шедулере: {e}")
+            await app.send_message(TARGET_CHAT, "автосканирование за прошлый час сломалось - включи вручную /hardscan")
+        await asyncio.sleep(1800)  # 30 мин
 
 
 async def send_startup_message_delayed():
@@ -184,6 +198,7 @@ async def send_startup_message_delayed():
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(send_startup_message_delayed())
+    loop.create_task(scheduler_loop())  # <-- Запуск шедулера!
     logging.warning("БОТ ЗАПУЩЕН:")
     try:
         app.run()

@@ -8,8 +8,8 @@ import re  # [добавлено] для парсинга FloodWait логов
 from pyrogram.errors import FloodWait
 from bot_config import TARGET_CHAT
 from alerts import send_alert, get_message_link
-from ignore_manager import add_ignored_user, load_ignored_users,  load_ignored_chats, add_ignored_chat
-from keyword_manager import add_extra_keyword
+from ignore_manager import add_ignored_user, load_ignored_users,  load_ignored_chats, add_ignored_chat, remove_ignored_user
+from keyword_manager import add_extra_keyword, remove_extra_keyword
 from pyrogram.enums import ChatType
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ class CommandHandler:
 
     @staticmethod
     def calc_maxlimit(hours):
+        if hours <= 1:
+            return hours * 30
         if hours <= 3:
             return hours * 20
         elif hours < 24:
@@ -61,11 +63,13 @@ class CommandHandler:
         help_text = (
             "\U0001F6E0️ **Доступные команды:**\n\n"
             "/addword \"слово\" - добавить новое ключевое слово\n"
-            "/ignore \"@username\" - добавить пользователя в игнор-лист\n"
-            "/ignorechat \"имя чата\" - добавить чат в игнор-лист\n"
+            "/delword \"слово\" - добавить новое ключевое слово\n"
+            "/игнор \"@username\" - добавить пользователя в игнор-лист\n"
+            "/неигнор \"@username\" - удалить пользователя из игнор-лист\n"
+            "/delchat \"имя чата\" - добавить чат в игнор-лист\n"
             "/lasttime <часы> - вручную просканировать чаты за последние часы\n"
             "/help - показать это сообщение\n\n"
-            "/hardscan - более полное сканирование\n\n"
+            "/hardscan - 🔥🔥 более полное сканирование(ВКЛЮЧАТЬ ТОЛЬКО ПОСЛЕ ПАДЕНИЯ СИСТЕМЫ)\n\n"
             "‼️ Пиши команды в любом месте (Избранное, группы, ЛС)."
         )
         await message.reply(help_text, quote=True)
@@ -86,6 +90,24 @@ class CommandHandler:
             logger.error(f"Ошибка при добавлении слова: {e}", exc_info=True)
             await message.reply(f"⚠️ Ошибка при добавлении слова:\n`{str(e)}`", quote=True)
 
+    async def del_word(self, message):
+        try:
+            parts = message.text.split(' ', 1)
+            if len(parts) < 2 or not parts[1].strip():
+                await message.reply("❗ Укажи слово после команды.\nПример: `/delword штанга`", quote=True)
+                return
+
+            word = parts[1].strip().strip('"').strip("'").lower()
+            remove_extra_keyword(word)  # удаляем из файла
+            if word in self.ALL_KEYWORDS:
+                self.ALL_KEYWORDS.remove(word)  # обновляем локальный список
+
+            await message.reply(f"✅ Ключевое слово **{word}** удалено!", quote=True)
+        except Exception as e:
+            logger.error(f"Ошибка при удалении слова: {e}", exc_info=True)
+            await message.reply(f"⚠️ Ошибка при удалении слова:\n`{str(e)}`", quote=True)
+
+
     async def ignore_user(self, message):
         try:
             parts = message.text.split(' ', 1)
@@ -102,11 +124,27 @@ class CommandHandler:
             logger.error(f"Ошибка при добавлении в игнор: {e}", exc_info=True)
             await message.reply(f"⚠️ Ошибка при добавлении в игнор:\n`{str(e)}`", quote=True)
 
-    async def ignore_chat(self, message):
+    async def unignore_user(self, message):
         try:
             parts = message.text.split(' ', 1)
             if len(parts) < 2 or not parts[1].strip():
-                await message.reply("❗ Укажите имя чата или ID после команды.\nПример: `/ignorechat @chatname`", quote=True)
+                await message.reply("❗ Укажите юзернейм после команды.\nПример: `/unignore @username`", quote=True)
+                return
+
+            username = parts[1].strip().lstrip("@").lower()
+            remove_ignored_user(username)  # удаляем из файла
+            self.ignored_users.discard(username)  # обновляем локальный список
+
+            await message.reply(f"✅ Пользователь @{username} удалён из игнор-листа.", quote=True)
+        except Exception as e:
+            logger.error(f"Ошибка при удалении из игнора: {e}", exc_info=True)
+            await message.reply(f"⚠️ Ошибка при удалении из игнора:\n`{str(e)}`", quote=True)
+
+    async def del_chat(self, message):
+        try:
+            parts = message.text.split(' ', 1)
+            if len(parts) < 2 or not parts[1].strip():
+                await message.reply("❗ Укажите имя чата или ID после команды.\nПример: `/delchat @chatname`", quote=True)
                 return
             chatname_or_id = parts[1].strip().lstrip("@").lower()
             add_ignored_chat(chatname_or_id)
@@ -121,7 +159,7 @@ class CommandHandler:
         Команда: /lasttime <число_часов>
         Сканирует сообщения за последние <число_часов> часов.
         """
-        MAX_CHATS = 10# None = без ограничения
+        MAX_CHATS = None
         try:
             self.refresh_ignored_users()
 
@@ -140,7 +178,9 @@ class CommandHandler:
                     quote=True)
                 return
 
-            await message.reply(f"\U0001F50E Начинаю сканировать сообщения за последние {hours} часов...")
+            # await message.reply(f"\U0001F50E Начинаю сканировать сообщения за последние {hours} часов...")
+            await self.app.send_message(TARGET_CHAT, f"\U0001F50E Начинаю сканировать сообщения за последние {hours} часов...")
+            logger.warning(" сканирование за прошлое время началось")
             maxlimit = self.calc_maxlimit(hours)
             time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
 
@@ -249,7 +289,7 @@ class CommandHandler:
 
                         break  # если дошли сюда - успешно обработали историю, выходим из while
                     except FloodWait as e:  # ловим ограничение Telegram
-                        logger.info(f"[FloodWait] Ждём {e.value} секунд перед повтором...")
+                        logger.warning(f"[FloodWait] Ждём {e.value} секунд перед повтором...")
                         await asyncio.sleep(e.value)
                     except Exception as e:
                         logger.error(f"❌ [{chat.id}] Ошибка: {type(e).__name__}: {e}", exc_info=True)
@@ -257,7 +297,7 @@ class CommandHandler:
 
             logger.info("Перед отправкой сообщения о завершении сканирования")
             await self.app.send_message(TARGET_CHAT, f"✅ Сканирование за последние {hours} часов завершено!")
-            logger.info(f"✅ Сканирование за последние {hours} часов завершено!")
+            logger.warning(f"✅ Сканирование за последние {hours} часов завершено!")
         except Exception as e:
             logger.error(f"Ошибка при сканировании: {e}", exc_info=True)
             await self.app.send_message(message.chat.id, f"⚠️ Ошибка при сканировании:\n`{str(e)}`")

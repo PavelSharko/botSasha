@@ -17,3 +17,12 @@ def add_extra_keyword(word):
 def get_all_keywords():
     extra_keywords = load_extra_keywords()
     return [w.lower() for w in KEYWORDS + TRAINER_KEYWORDS] + extra_keywords
+
+def remove_extra_keyword(word):
+    word = word.lower()
+    words = load_extra_keywords()
+    if word in words:
+        words.remove(word)
+        with open(EXTRA_KEYWORDS_FILE, "w", encoding="utf-8") as f:
+            for w in words:
+                f.write(w + "\n")

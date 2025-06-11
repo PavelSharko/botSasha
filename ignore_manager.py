@@ -30,3 +30,12 @@ def add_ignored_chat(chatname_or_id):
     if chatname_or_id not in chats:
         with open(IGNORE_CHATS_FILE, "a", encoding="utf-8") as f:
             f.write(chatname_or_id + "\n")
+
+def remove_ignored_user(username):
+    username = username.lower()
+    users = load_ignored_users()
+    if username in users:
+        users.remove(username)
+        with open(IGNORED_USERS_FILE, "w", encoding="utf-8") as f:
+            for u in users:
+                f.write(u + "\n")
