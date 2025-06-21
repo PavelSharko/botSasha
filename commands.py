@@ -3,12 +3,13 @@
 import asyncio
 import logging
 import datetime
-import re  # [добавлено] для парсинга FloodWait логов
+import re
+from service_maethods import contains_stopphrase
 
 from pyrogram.errors import FloodWait
-from bot_config import TARGET_CHAT
+from bot_config import TARGET_CHAT, welcome_message
 from alerts import send_alert, get_message_link
-from ignore_manager import add_ignored_user, load_ignored_users,  load_ignored_chats, add_ignored_chat, remove_ignored_user
+from ignore_manager import add_ignored_user, load_ignored_users,  load_ignored_chats, add_ignored_chat, remove_ignored_user, remove_stopword, load_stopwords, add_stopword
 from keyword_manager import add_extra_keyword, remove_extra_keyword
 from pyrogram.enums import ChatType
 
@@ -59,20 +60,9 @@ class CommandHandler:
         else:
             return 300
 
+
     async def send_help(self, message):
-        help_text = (
-            "\U0001F6E0️ **Доступные команды:**\n\n"
-            "/addword \"слово\" - добавить новое ключевое слово\n"
-            "/delword \"слово\" - добавить новое ключевое слово\n"
-            "/игнор \"@username\" - добавить пользователя в игнор-лист\n"
-            "/неигнор \"@username\" - удалить пользователя из игнор-лист\n"
-            "/delchat \"имя чата\" - добавить чат в игнор-лист\n"
-            "/lasttime <часы> - вручную просканировать чаты за последние часы\n"
-            "/help - показать это сообщение\n\n"
-            "/hardscan - 🔥🔥 более полное сканирование(ВКЛЮЧАТЬ ТОЛЬКО ПОСЛЕ ПАДЕНИЯ СИСТЕМЫ)\n\n"
-            "‼️ Пиши команды в любом месте (Избранное, группы, ЛС)."
-        )
-        await message.reply(help_text, quote=True)
+        await message.reply(welcome_message, quote=True)
 
     async def add_word(self, message):
         try:
@@ -82,6 +72,9 @@ class CommandHandler:
                 return
 
             new_word = parts[1].strip().strip('"').strip("'").lower()
+            if new_word in self.ALL_KEYWORDS:
+                await message.reply(f"⚠️ Слово **{new_word}** уже есть в списке ключевых слов.", quote=True)
+                return
             add_extra_keyword(new_word)  # добавляем в файл
             self.ALL_KEYWORDS.append(new_word)  # обновляем локальный список
 
@@ -154,6 +147,43 @@ class CommandHandler:
             logger.error(f"Ошибка при добавлении чата в игнор: {e}", exc_info=True)
             await message.reply(f"⚠️ Ошибка при добавлении чата в игнор:\n`{str(e)}`", quote=True)
 
+
+
+    async def add_stopword(self, message):
+        try:
+            parts = message.text.split(' ', 1)
+            if len(parts) < 2 or not parts[1].strip():
+                await message.reply("❗ Укажи стоп-фразу после команды.\nПример: `/stopword футбол`", quote=True)
+                return
+            phrase = parts[1].strip()
+            stopwords = load_stopwords()
+            if phrase in stopwords:
+                await message.reply(f"⚠️ Стоп-фраза уже есть: **{phrase}**", quote=True)
+                return
+            add_stopword(phrase)
+            await message.reply(f"✅ Стоп-фраза **{phrase}** добавлена!", quote=True)
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении стоп-фразы: {e}", exc_info=True)
+            await message.reply(f"⚠️ Ошибка при добавлении стоп-фразы:\n`{str(e)}`", quote=True)
+
+    async def remove_stopword(self, message):
+        try:
+            parts = message.text.split(' ', 1)
+            if len(parts) < 2 or not parts[1].strip():
+                await message.reply("❗ Укажи стоп-фразу после команды.\nПример: `/unstopword футбол`", quote=True)
+                return
+            phrase = parts[1].strip()
+            stopwords = load_stopwords()
+            if phrase not in stopwords:
+                await message.reply(f"⚠️ Стоп-фразы **{phrase}** нет в списке.", quote=True)
+                return
+            remove_stopword(phrase)
+            await message.reply(f"✅ Стоп-фраза **{phrase}** удалена!", quote=True)
+        except Exception as e:
+            logger.error(f"Ошибка при удалении стоп-фразы: {e}", exc_info=True)
+            await message.reply(f"⚠️ Ошибка при удалении стоп-фразы:\n`{str(e)}`", quote=True)
+
+
     async def last_time(self, message):
         """
         Команда: /lasttime <число_часов>
@@ -178,8 +208,7 @@ class CommandHandler:
                     quote=True)
                 return
 
-            # await message.reply(f"\U0001F50E Начинаю сканировать сообщения за последние {hours} часов...")
-            await self.app.send_message(TARGET_CHAT, f"\U0001F50E Начинаю сканировать сообщения за последние {hours} часов...")
+            # await self.app.send_message(TARGET_CHAT, f"\U0001F50E Начинаю сканировать сообщения за последние {hours} часов...")
             logger.warning(" сканирование за прошлое время началось")
             maxlimit = self.calc_maxlimit(hours)
             time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
@@ -196,12 +225,17 @@ class CommandHandler:
                     logger.info(f"[{chat.id}] Чат в игноре, пропускаем.")
                     continue
 
+                # это если что удалить
+                if (chat.username and ("@" + chat.username.lower() == TARGET_CHAT.lower())) or (str(chat.id) == TARGET_CHAT):
+                    logger.info(f"Пропускаем чат {chat.id}, так как он является TARGET_CHAT")
+                    continue  # Пропускаем сканирование TARGET_CHAT
+
                 if chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
                     logger.info(f"[{chat.id}] Пропущен чат типа {chat.type}")
                     continue
 
                 if (chat.username and ("@" + chat.username.lower() == TARGET_CHAT.lower())) or (
-                    str(chat.id) == TARGET_CHAT):
+                        str(chat.id) == TARGET_CHAT):
                     continue
 
                 logger.info(f"[{chat.id}] сканируем чат типа {chat.type}")
@@ -228,19 +262,19 @@ class CommandHandler:
                             # messages = await self.app.get_chat_history(chat.id, offset_id=offset_id, limit=batch_size)
                             # но надо смотреть как реализовать с учетом моей даты по часам
                             entered = True
-
+                            await asyncio.sleep(2)
                             if not msg.text:
                                 # Проверяем, есть ли медиа (фото, видео, документ и т.п.)
                                 has_media = (
-                                    getattr(msg, "photo", None) is not None or
-                                    getattr(msg, "video", None) is not None or
-                                    getattr(msg, "document", None) is not None or
-                                    getattr(msg, "animation", None) is not None or
-                                    getattr(msg, "audio", None) is not None or
-                                    getattr(msg, "voice", None) is not None or
-                                    getattr(msg, "video_note", None) is not None or
-                                    getattr(msg, "sticker", None) is not None
-                            )
+                                        getattr(msg, "photo", None) is not None or
+                                        getattr(msg, "video", None) is not None or
+                                        getattr(msg, "document", None) is not None or
+                                        getattr(msg, "animation", None) is not None or
+                                        getattr(msg, "audio", None) is not None or
+                                        getattr(msg, "voice", None) is not None or
+                                        getattr(msg, "video_note", None) is not None or
+                                        getattr(msg, "sticker", None) is not None
+                                )
 
                                 if not has_media:
                                     # Нет текста и нет медиа - значит это "пустое" сообщение, можно прервать цикл
@@ -248,8 +282,6 @@ class CommandHandler:
                                     break
 
                                 continue
-                            found_messages = True
-
 
 
                             if msg.date < time_limit:
@@ -265,6 +297,13 @@ class CommandHandler:
                             matched_keyword = next((k for k in self.ALL_KEYWORDS if k in text), None)
 
                             if not matched_keyword:
+                                continue
+
+                            found_messages = True
+
+
+                            # ПРОВЕРКА НА ИСКЛЮЧЕННЫЕ СЛОВОСОЧЕТАНИЯ
+                            if await contains_stopphrase(self.app, msg.text):
                                 continue
 
                             chat_title = chat.title if chat.title else f"Личка @{sender}" if sender else "Неизвестный чат"
@@ -296,7 +335,7 @@ class CommandHandler:
                         await asyncio.sleep(5)
 
             logger.info("Перед отправкой сообщения о завершении сканирования")
-            await self.app.send_message(TARGET_CHAT, f"✅ Сканирование за последние {hours} часов завершено!")
+            # await self.app.send_message(TARGET_CHAT, f"✅ Сканирование за последние {hours} часов завершено!")
             logger.warning(f"✅ Сканирование за последние {hours} часов завершено!")
         except Exception as e:
             logger.error(f"Ошибка при сканировании: {e}", exc_info=True)

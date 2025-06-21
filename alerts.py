@@ -2,14 +2,14 @@
 import logging
 import re
 from cashes import alert_cache
-
+from service_maethods import contains_stopphrase
 
 logger = logging.getLogger(__name__)
 
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot_config import TARGET_CHAT
+from bot_config import TARGET_CHAT, name_owner
 
 
 
@@ -52,6 +52,10 @@ async def send_alert(app, message, keyword_matched, old_message_note="", link=No
         f"{sms_link}"
     )
 
+    # ПРОВЕРКА НА ИСКЛЮЧЕННЫЕ СЛОВОСОЧЕТАНИЯ - реализовано на случай когда уже в итоговом сообщении, может провериться хоть имя пользователя хоть чат
+    if await contains_stopphrase(app, alert_message):
+        return
+
     buttons = []
     if message.from_user and message.from_user.username:
         buttons.append([InlineKeyboardButton(f"🚫 Игнорировать @{message.from_user.username}", callback_data=f"ignore_{message.from_user.username}")])
@@ -68,6 +72,7 @@ async def send_alert(app, message, keyword_matched, old_message_note="", link=No
         reply_markup=reply_markup
     )
     alert_cache.add(unique_key)
+
 
     # эта тема добавит строку для копирования дополнительным сообщением
     # if message.from_user and message.from_user.username:
@@ -109,7 +114,7 @@ def get_chat_link(message):
 
 
 async def send_startup_message(app):
-    await app.send_message(TARGET_CHAT, "🚀 Бот запущен!\n\nНапиши `/help` чтобы узнать команды.")
+    await app.send_message(TARGET_CHAT, f"🚀 Бот от @{name_owner} запущен!\n\nНапиши `/help` чтобы узнать команды.")
 
 
 def escape_markdown(text):

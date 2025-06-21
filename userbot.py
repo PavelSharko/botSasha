@@ -1,17 +1,24 @@
 import asyncio
 from pyrogram import Client, filters, idle
 
-
+import datetime
+import pytz  # pip install pytz
 
 import logging
 import datetime
 
 
-from bot_config import api_id, api_hash, TARGET_CHAT
+from bot_config import api_id, api_hash, TARGET_CHAT, name_owner, START_HOUR, END_HOUR, MOSCOW_TZ
 from keyword_manager import get_all_keywords
-from ignore_manager import load_ignored_users, load_ignored_chats
+from ignore_manager import load_ignored_users, load_ignored_chats, load_stopwords
 from cashes import alert_cache_cleaner
 from alerts import send_alert, get_message_link, send_startup_message
+from service_maethods import contains_stopphrase
+
+
+
+
+
 from commands import CommandHandler
 
 
@@ -40,13 +47,15 @@ async def keyword_alert(client, message):
             return
         sender = message.from_user.username if message.from_user else None
         is_self = getattr(message.from_user, "is_self", False)
-        text = message.text or ""
+        text = message.text.lower() or ""
 
         # 1. Если сообщение в TARGET_CHAT
         if (
                 (chat_username and chat_username.lower() == TARGET_CHAT.lstrip("@").lower())
                 or (TARGET_CHAT.startswith("-100") and chat_id == TARGET_CHAT) or  (str(message.chat.id) == TARGET_CHAT)
         ):
+
+
             # 1.1 Если это команда (начинается с /), обрабатываем
             if text.startswith("/"):
                 # Обработка команд
@@ -74,10 +83,20 @@ async def keyword_alert(client, message):
                 if text.startswith("/hardscan"):
                     await scheduler_loop()
                     return
+                # --- Команды стоп-слов ---
+                if text.startswith("/stopword"):
+                    await command_handler.add_stopword(message)
+                    return
+                if text.startswith("/unstopword"):
+                    await command_handler.remove_stopword(message)
+                    return
+                await message.reply(f"\U0001F50E неверная команда - еще раз так напишешь  я тебе устрою!")
                 return
-            else:
-                await message.reply(f"\U0001F50E ты че написал не правильно баклан?! а?")
-                return
+            return
+            # раскоментить когда будет в один чат писаться
+            # else:
+            #     await message.reply(f"\U0001F50E ты че написал не правильно баклан?! а?")
+            #     return
 
         # 2. Если сообщение не из TARGET_CHAT
 
@@ -122,11 +141,14 @@ async def keyword_alert(client, message):
         if not matched_keyword:
             return
 
+            # ПРОВЕРКА НА ИСКЛЮЧЕННЫЕ СЛОВОСОЧЕТАНИЯ
+        if await contains_stopphrase(app, message.text):
+            return
+
         time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         chat_type = message.chat.type
         chat_title = message.chat.title if message.chat.title else f"Личка @{sender}" if sender else "Неизвестный чат"
 
-        # print(f"[{time_str}] Найдено слово: \"{matched_keyword}\" | Автор: @{sender} | Тип чата: {chat_type} | Чат: \"{chat_title}\"")
 
         logging.info(f"Найдено слово: \"{matched_keyword}\" | Автор: @{sender} | Тип чата: {chat_type} | Чат: \"{chat_title}\"")
 
@@ -168,25 +190,55 @@ async def scheduler_loop():
     logging.warning("шедулер за 30 минут по пропущенному:")
     await asyncio.sleep(10) #чутка ждем чтобы засинхрониться
     asyncio.create_task(alert_cache_cleaner(app))
-    await app.send_message(TARGET_CHAT, "⏰ Шедулер: запускаю дополнительное глубокое сканирование через получение истории.")
+    # await app.send_message(TARGET_CHAT, "⏰ Шедулер: запускаю дополнительное глубокое сканирование через получение истории.")
+    last_morning_run_date = None  # чтобы запускать команду 1 раз в день утром
 
     while True:
         try:
-            # Имитация команды /lasttime 1 час
-            # Можно вызвать напрямую метод, который обрабатывает lasttime
-            # Например, если есть command_handler.last_time()
-            class DummyMessage:
-                def __init__(self):
-                    self.text = "/lasttime 1"
-                    self.chat = type("Chat", (), {"id": TARGET_CHAT})()
-                    self.from_user = None
-                async def reply(self, *a, **k): pass
+            # Получаем текущее время по МСК
+            now_moscow = datetime.datetime.now(MOSCOW_TZ)
+            current_hour = now_moscow.hour
+            current_date = now_moscow.date()
 
-            await command_handler.last_time(DummyMessage())
+
+            # Утренний запуск команды /lasttime с динамическим аргументом
+            if current_hour == START_HOUR and last_morning_run_date != current_date:
+                # Вычисляем разницу в часах между END_HOUR и START_HOUR
+                # Предполагается, что END_HOUR > START_HOUR, иначе можно добавить логику на переход через полночь
+                hours_diff =  START_HOUR - END_HOUR
+                if hours_diff <= 0:
+                    hours_diff = 24 + hours_diff  # если переход через полночь
+
+                class DummyMessage:
+                    def __init__(self, hours):
+                        self.text = f"/lasttime {hours}"
+                        self.chat = type("Chat", (), {"id": TARGET_CHAT})()
+                        self.from_user = None
+                    async def reply(self, *a, **k): pass
+
+                logging.warning(f"Утренний запуск /lasttime {hours_diff} в {now_moscow.strftime('%H:%M:%S')} МСК")
+                await app.send_message(TARGET_CHAT, f"Утренний запуск /lasttime {hours_diff} в {now_moscow.strftime('%H:%M:%S')} МСК")
+                await command_handler.last_time(DummyMessage(hours_diff))
+                last_morning_run_date = current_date
+
+
+
+            if START_HOUR <= current_hour < END_HOUR:
+                class DummyMessage:
+                    def __init__(self):
+                        self.text = "/lasttime 1"
+                        self.chat = type("Chat", (), {"id": TARGET_CHAT})()
+                        self.from_user = None
+                    async def reply(self, *a, **k): pass
+
+                await command_handler.last_time(DummyMessage())
+            else:
+                logging.info(f"Сейчас {now_moscow.strftime('%H:%M:%S')} МСК — вне времени запуска, ждем.")
+
         except Exception as e:
             logging.warning(f"Ошибка в шедулере: {e}")
             await app.send_message(TARGET_CHAT, "автосканирование за прошлый час сломалось - включи вручную /hardscan")
-        await asyncio.sleep(1800)  # 30 мин
+        await asyncio.sleep(3600)  # 60 мин
 
 
 async def send_startup_message_delayed():
@@ -194,18 +246,20 @@ async def send_startup_message_delayed():
     await send_startup_message(app)
 
 
+async def init_dialogs(app):
+    await asyncio.sleep(2)
+    async for _ in app.get_dialogs():
+        pass
+
+
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
+    loop.create_task(init_dialogs(app))
     loop.create_task(send_startup_message_delayed())
     loop.create_task(scheduler_loop())  # <-- Запуск шедулера!
-    logging.warning("БОТ ЗАПУЩЕН:")
+    logging.warning(f"БОТ ЗАПУЩЕН: от @{name_owner}")
     try:
         app.run()
     except KeyboardInterrupt:
         logging.warning("БОТ остановлен вручную:")
-
-
-
-
-
