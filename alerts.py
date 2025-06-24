@@ -86,7 +86,7 @@ from pyrogram.enums import ChatType
 def get_message_link(message):
     chat = message.chat
     msg_id = getattr(message, "message_id", None) or getattr(message, "id", None)
-    logging.info(
+    logging.debug(
         f"get_message_link: chat_type={chat.type}, message_id={msg_id}, chat_username={getattr(chat, 'username', None)}, chat_id={chat.id}")
 
     if not msg_id:

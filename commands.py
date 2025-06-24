@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # [добавлено] Настройка Pyrogram логгера для отслеживания "Waiting for N seconds..."
 pyrogram_logger = logging.getLogger("pyrogram")
 pyrogram_logger.setLevel(logging.WARNING)
-# Устанавливить логи чтобы видеть все что происходит
+# Устанавливить логи чтобы видеть все всчто происходит
 # logging.getLogger("pyrogram").setLevel(logging.DEBUG)
 # logging.getLogger("pyrogram.client.session.session").setLevel(logging.DEBUG)
 # logging.getLogger("pyrogram.client").setLevel(logging.DEBUG)
@@ -222,25 +222,25 @@ class CommandHandler:
                 chat = dialog.chat
 
                 if (str(chat.id) in self.ignored_chats) or (getattr(chat, "username", None) and chat.username.lower() in self.ignored_chats):
-                    logger.info(f"[{chat.id}] Чат в игноре, пропускаем.")
+                    logger.debug(f"[{chat.id}] Чат в игноре, пропускаем.")
                     continue
 
                 # это если что удалить
                 if (chat.username and ("@" + chat.username.lower() == TARGET_CHAT.lower())) or (str(chat.id) == TARGET_CHAT):
-                    logger.info(f"Пропускаем чат {chat.id}, так как он является TARGET_CHAT")
+                    logger.debug(f"Пропускаем чат {chat.id}, так как он является TARGET_CHAT")
                     continue  # Пропускаем сканирование TARGET_CHAT
 
                 if chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
-                    logger.info(f"[{chat.id}] Пропущен чат типа {chat.type}")
+                    logger.debug(f"[{chat.id}] Пропущен чат типа {chat.type}")
                     continue
 
                 if (chat.username and ("@" + chat.username.lower() == TARGET_CHAT.lower())) or (
                         str(chat.id) == TARGET_CHAT):
                     continue
 
-                logger.info(f"[{chat.id}] сканируем чат типа {chat.type}")
+                logger.debug(f"[{chat.id}] сканируем чат типа {chat.type}")
                 count += 1
-                logger.info(f"count увеличен: {count}")
+                logger.debug(f"count увеличен: {count}")
 
                 found_any = False
 
@@ -251,7 +251,7 @@ class CommandHandler:
 
                         try:
                             member = await self.app.get_chat_member(chat.id, "me")
-                            logger.info(f"[{chat.id}] Мои права: {member.status}")
+                            logger.debug(f"[{chat.id}] Мои права: {member.status}")
                         except Exception as e:
                             logger.info(f"[{chat.id}] Не удалось получить мои права в чате: {e}")
 
@@ -262,7 +262,7 @@ class CommandHandler:
                             # messages = await self.app.get_chat_history(chat.id, offset_id=offset_id, limit=batch_size)
                             # но надо смотреть как реализовать с учетом моей даты по часам
                             entered = True
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(0,1)
                             if not msg.text:
                                 # Проверяем, есть ли медиа (фото, видео, документ и т.п.)
                                 has_media = (
@@ -278,7 +278,7 @@ class CommandHandler:
 
                                 if not has_media:
                                     # Нет текста и нет медиа - значит это "пустое" сообщение, можно прервать цикл
-                                    logger.info(f"[{chat.id}] История пуста (get_chat_history вернул 0 сообщений с текстом или медиа).")
+                                    logger.debug(f"[{chat.id}] История пуста (get_chat_history вернул 0 сообщений с текстом или медиа).")
                                     break
 
                                 continue
@@ -320,11 +320,11 @@ class CommandHandler:
 
                             await asyncio.sleep(2)  # Задержка между отправками
                         if not entered:
-                            logger.info(f"[{chat.id}] История НЕ получена — Telegram не отдал ни одного сообщения.")
+                            logger.debug(f"[{chat.id}] История НЕ получена — Telegram не отдал ни одного сообщения.")
                         if not found_messages:
-                            logger.info(f"[{chat.id}] История пуста (нет текстовых сообщений).")
+                            logger.debug(f"[{chat.id}] История пуста (нет текстовых сообщений).")
                         if not found_any:
-                            logger.info(f"[{chat.id}] История этого чата не содержит ключевых сообщений.")
+                            logger.debug(f"[{chat.id}] История этого чата не содержит ключевых сообщений.")
 
                         break  # если дошли сюда - успешно обработали историю, выходим из while
                     except FloodWait as e:  # ловим ограничение Telegram
@@ -334,8 +334,8 @@ class CommandHandler:
                         logger.error(f"❌ [{chat.id}] Ошибка: {type(e).__name__}: {e}", exc_info=True)
                         await asyncio.sleep(5)
 
-            logger.info("Перед отправкой сообщения о завершении сканирования")
-            # await self.app.send_message(TARGET_CHAT, f"✅ Сканирование за последние {hours} часов завершено!")
+
+            await self.app.send_message(TARGET_CHAT, f"✅ Сканирование за последние {hours} часов завершено!")
             logger.warning(f"✅ Сканирование за последние {hours} часов завершено!")
         except Exception as e:
             logger.error(f"Ошибка при сканировании: {e}", exc_info=True)

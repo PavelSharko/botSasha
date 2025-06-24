@@ -1,14 +1,18 @@
 import asyncio
-from pyrogram import Client, filters, idle
 
-import datetime
-import pytz  # pip install pytz
+from pyrogram import Client, filters, idle
+import subprocess
+import os
+import sys
+
+
 
 import logging
 import datetime
 
 
 from bot_config import api_id, api_hash, TARGET_CHAT, name_owner, START_HOUR, END_HOUR, MOSCOW_TZ
+from colorFormatter import ColorFormatter
 from keyword_manager import get_all_keywords
 from ignore_manager import load_ignored_users, load_ignored_chats, load_stopwords
 from cashes import alert_cache_cleaner
@@ -29,17 +33,35 @@ ignored_chats = load_ignored_chats()
 app = Client("my_account", api_id=api_id, api_hash=api_hash)
 command_handler = CommandHandler(app, ALL_KEYWORDS, ignored_users, ignored_chats)
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format='[%(asctime)s] %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 
+def kill_process_using_file(filename):
+    try:
+        # Получаем PID процесса, использующего файл
+        output = subprocess.check_output(["lsof", "-t", filename])
+        pids = output.decode().strip().split("\n")
+        for pid in pids:
+            if pid:
+                os.system(f"kill {pid}")
+    except Exception as e:
+        print(f"Не удалось завершить процесс: {e}")
+
+# Функция для преобразования строки в уровень логирования
+def get_log_level(level_name):
+    level_name = level_name.upper()
+    levels = {
+        "CRITICAL": logging.CRITICAL,
+        "ERROR": logging.ERROR,
+        "WARNING": logging.WARNING,
+        "INFO": logging.INFO,
+        "DEBUG": logging.DEBUG,
+        "NOTSET": logging.NOTSET,
+    }
+    return levels.get(level_name, logging.INFO)  # по умолчанию INFO
 
 
 @app.on_message(filters.text)
 async def keyword_alert(client, message):
-    logging.info(f"Получено сообщение: {message}")
+    logging.debug(f"Получено сообщение: {message}")
     try:
         chat_username = getattr(message.chat, "username", None)
         chat_id = str(message.chat.id)
@@ -216,7 +238,7 @@ async def scheduler_loop():
                         self.from_user = None
                     async def reply(self, *a, **k): pass
 
-                logging.warning(f"Утренний запуск /lasttime {hours_diff} в {now_moscow.strftime('%H:%M:%S')} МСК")
+                logging.info(f"Утренний запуск /lasttime {hours_diff} в {now_moscow.strftime('%H:%M:%S')} МСК")
                 await app.send_message(TARGET_CHAT, f"Утренний запуск /lasttime {hours_diff} в {now_moscow.strftime('%H:%M:%S')} МСК")
                 await command_handler.last_time(DummyMessage(hours_diff))
                 last_morning_run_date = current_date
@@ -254,6 +276,26 @@ async def init_dialogs(app):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        log_level = get_log_level(sys.argv[1])
+    else:
+        log_level = logging.INFO
+
+    if sys.platform in ("linux", "darwin"):
+        session_file = "my_account.session"
+    if os.path.exists(session_file):
+        kill_process_using_file(session_file)
+
+    handler = logging.StreamHandler()
+    fmt = '[%(asctime)s] %(levelname)s: %(message)s'
+    datefmt = '%Y-%m-%d %H:%M:%S'
+    handler.setFormatter(ColorFormatter(fmt=fmt, datefmt=datefmt))
+    logging.basicConfig(
+        level=log_level,
+        handlers=[handler]
+    )
+
+
     loop = asyncio.get_event_loop()
     loop.create_task(init_dialogs(app))
     loop.create_task(send_startup_message_delayed())
@@ -263,3 +305,5 @@ if __name__ == "__main__":
         app.run()
     except KeyboardInterrupt:
         logging.warning("БОТ остановлен вручную:")
+
+
